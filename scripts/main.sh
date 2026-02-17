@@ -143,7 +143,7 @@ delete_image() {
     
     # Delete the image
     print_warning "Deleting image from registry..."
-    ibmcloud cr image-rm "$image" -f
+    ibmcloud cr image-rm -f "$image"
     handle_error $? "Failed to delete image $image"
     
     print_success "Image deleted successfully"
