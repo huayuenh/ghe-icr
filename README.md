@@ -1,387 +1,500 @@
-# IBM Cloud Container Registry GitHub Action
+# Deploy to Kubernetes/OpenShift Action
 
-A comprehensive GitHub Action for managing container images in IBM Cloud Container Registry. This action supports pushing, pulling, tagging, retagging images, managing namespaces, and running vulnerability scans.
+A comprehensive GitHub Action for deploying container images to Kubernetes or Red Hat OpenShift clusters with health checks, status verification, and automatic URL generation.
 
 ## Features
 
-- 🚀 **Push images** to IBM Cloud Container Registry
-- 📥 **Pull images** from IBM Cloud Container Registry
-- 🏷️ **Tag images** with additional tags
-- 🔄 **Retag images** to move tags between versions
-- 🗑️ **Delete images** from the registry
-- 📦 **Manage namespaces** (create, delete, list)
-- 🔒 **Vulnerability scanning** with IBM Cloud Vulnerability Advisor (enabled by default)
-- ⚙️ **Configurable scan behavior** - choose whether to fail on vulnerabilities
-- 🔄 **Automatic retry logic** - waits up to 5 minutes for scan completion
-- 🌍 **Multi-region support** with automatic region detection
-- ✅ **Comprehensive error handling** and logging
-- 🔧 **Uses IBM Cloud CLI marketplace action** for streamlined setup
-
-## Prerequisites
-
-- IBM Cloud account with Container Registry access
-- IBM Cloud API key with appropriate permissions
-- Docker image built and available locally (for push operations)
+- 🚀 **Deploy to Kubernetes or OpenShift** clusters
+- 🔐 **Multiple authentication methods** (kubeconfig or IBM Cloud API key)
+- 🔑 **Automatic image pull secrets** for IBM Cloud Container Registry
+- 🏥 **Health checks** with configurable timeout and path
+- 🌐 **Automatic URL generation** for LoadBalancer, NodePort, Routes, and Ingress
+- 📊 **Status verification** with pod and deployment monitoring
+- ⚙️ **Resource management** with configurable CPU and memory limits
+- 🔄 **Rolling updates** with automatic rollout status checking
+- 📝 **Environment variables** support
+- 🎯 **Service types** support (ClusterIP, NodePort, LoadBalancer)
+- 🛣️ **OpenShift Routes** and Kubernetes Ingress support
 
 ## Inputs
 
 | Name | Required | Default | Description |
 |------|----------|---------|-------------|
-| `apikey` | ✓ | - | IBM Cloud API key for authentication |
-| `image` | ✗* | - | Full image path (e.g., `us.icr.io/namespace/image:tag`). Required for push, pull, tag, retag, and delete actions |
-| `local-image` | ✗ | - | Local image name to tag and push (e.g., `myapp:latest`). If specified, this image will be tagged with the target image path before pushing |
-| `action` | ✓ | - | Operation to perform: `push`, `pull`, `tag`, `retag`, `delete`, or `namespace` |
-| `scan` | ✗ | `true` | Enable vulnerability scanning after push/pull operations |
-| `scan-fail-on-vulnerability` | ✗ | `true` | Fail the build if FAIL status is returned from vulnerability scan |
-| `region` | ✗ | Auto-detect | IBM Cloud region (us-south, eu-gb, etc.). Auto-detected from image path if not specified |
-| `source-tag` | ✗* | - | Source tag for retag operation |
-| `target-tag` | ✗* | - | Target tag for tag/retag operations |
-| `namespace` | ✗* | - | Namespace name for namespace operations |
-| `namespace-action` | ✗* | - | Namespace operation: `create`, `delete`, or `list` |
+| `image` | ✅ | - | Container image to deploy (e.g., `us.icr.io/namespace/app:tag`) |
+| `cluster-type` | ❌ | `kubernetes` | Cluster type: `kubernetes` or `openshift` |
+| `kubeconfig` | ❌* | - | Kubeconfig content (base64 encoded or plain text) |
+| `ibmcloud-apikey` | ❌* | - | IBM Cloud API key (for IBM Cloud clusters) |
+| `cluster-name` | ❌* | - | IBM Cloud cluster name (required with `ibmcloud-apikey`) |
+| `cluster-region` | ❌ | `us-south` | IBM Cloud cluster region |
+| `namespace` | ❌ | `default` | Kubernetes namespace for deployment |
+| `deployment-name` | ✅ | - | Name of the deployment |
+| `deployment-manifest` | ❌ | - | Path to custom deployment manifest |
+| `container-name` | ❌ | deployment-name | Container name in the deployment |
+| `port` | ❌ | `8080` | Container port to expose |
+| `service-type` | ❌ | `ClusterIP` | Service type: ClusterIP, NodePort, LoadBalancer |
+| `replicas` | ❌ | `1` | Number of replicas |
+| `health-check-path` | ❌ | `/` | HTTP path for health check. Use `/` for root endpoint or specify custom path like `/health` |
+| `health-check-timeout` | ❌ | `300` | Health check timeout in seconds |
+| `enable-probes` | ❌ | `false` | Enable liveness and readiness probes (true/false) |
+| `readiness-probe-path` | ❌ | health-check-path | HTTP path for readiness probe |
+| `liveness-probe-path` | ❌ | health-check-path | HTTP path for liveness probe |
+| `resource-limits-cpu` | ❌ | `500m` | CPU resource limit |
+| `resource-limits-memory` | ❌ | `512Mi` | Memory resource limit |
+| `resource-requests-cpu` | ❌ | `250m` | CPU resource request |
+| `resource-requests-memory` | ❌ | `256Mi` | Memory resource request |
+| `env-vars` | ❌ | - | Environment variables (KEY=VALUE format, one per line) |
+| `create-route` | ❌ | `true` | Create OpenShift route (OpenShift only) |
+| `route-hostname` | ❌ | - | Custom hostname for OpenShift route |
+| `ingress-host` | ❌ | - | Ingress hostname (Kubernetes only) |
+| `ingress-tls` | ❌ | `false` | Enable TLS for ingress |
 
-**Note:** ✗* indicates conditionally required based on the `action` parameter.
+**Note:** ❌* indicates conditionally required - either `kubeconfig` OR (`ibmcloud-apikey` + `cluster-name`) must be provided.
 
 ## Outputs
 
 | Output | Description |
 |--------|-------------|
-| `scan-result` | Vulnerability scan results in JSON format |
-| `image-digest` | Image digest after push/pull operation |
-| `namespaces` | List of namespaces (for namespace list action) |
-| `operation-status` | Status of the operation (success/failure) |
+| `deployment-status` | Status of the deployment (success/failure) |
+| `application-url` | URL to access the deployed application |
+| `service-ip` | Service external IP or hostname |
+| `health-check-result` | Health check result |
+| `deployment-info` | Deployment information in JSON format |
 
 ## Usage Examples
 
-### Push Image
+### Deploy to IBM Cloud Kubernetes
 
-Push a Docker image to IBM Cloud Container Registry:
+Deploy an image from IBM Cloud Container Registry to an IBM Cloud Kubernetes cluster:
 
 ```yaml
-- name: Push to IBM Cloud Container Registry
-  uses: ./ibmcloud-cr-action
+- name: Deploy to Kubernetes
+  uses: ./deploy-action
   with:
-    apikey: ${{ secrets.IBM_CLOUD_API_KEY }}
-    image: us.icr.io/my-namespace/my-app:v1.0.0
-    action: push
+    image: us.icr.io/my-namespace/myapp:v1.0.0
+    cluster-type: kubernetes
+    ibmcloud-apikey: ${{ secrets.IBM_CLOUD_API_KEY }}
+    cluster-name: my-k8s-cluster
+    cluster-region: us-south
+    deployment-name: myapp
+    namespace: production
+    port: 8080
+    replicas: 3
 ```
 
-### Push Locally Built Image
+### Deploy to IBM Cloud OpenShift
 
-Build and push a local Docker image to IBM Cloud Container Registry:
+Deploy to a Red Hat OpenShift cluster on IBM Cloud:
 
 ```yaml
-- name: Build Docker image
-  run: docker build -t myapp:latest .
-
-- name: Push to IBM Cloud Container Registry
-  uses: ./ibmcloud-cr-action
+- name: Deploy to OpenShift
+  uses: ./deploy-action
   with:
-    apikey: ${{ secrets.IBM_CLOUD_API_KEY }}
-    image: us.icr.io/my-namespace/my-app:v1.0.0
-    local-image: myapp:latest
-    action: push
+    image: us.icr.io/my-namespace/myapp:v1.0.0
+    cluster-type: openshift
+    ibmcloud-apikey: ${{ secrets.IBM_CLOUD_API_KEY }}
+    cluster-name: my-openshift-cluster
+    cluster-region: us-south
+    deployment-name: myapp
+    namespace: production
+    create-route: true
+    route-hostname: myapp.example.com
 ```
 
-This will automatically tag your local `myapp:latest` image as `us.icr.io/my-namespace/my-app:v1.0.0` before pushing it to the registry.
+### Deploy with Custom Kubeconfig
 
-### Push Image with Vulnerability Scanning
-
-Push an image and run a vulnerability scan:
+Deploy using a custom kubeconfig:
 
 ```yaml
-- name: Push and scan image
-  uses: ./ibmcloud-cr-action
+- name: Deploy with kubeconfig
+  uses: ./deploy-action
   with:
-    apikey: ${{ secrets.IBM_CLOUD_API_KEY }}
-    image: us.icr.io/my-namespace/my-app:v1.0.0
-    action: push
-    scan: true
+    image: myregistry.io/myapp:latest
+    cluster-type: kubernetes
+    kubeconfig: ${{ secrets.KUBECONFIG }}
+    deployment-name: myapp
+    namespace: default
 ```
 
-### Pull Image
+### Deploy with Environment Variables
 
-Pull an image from IBM Cloud Container Registry:
+Deploy with custom environment variables:
 
 ```yaml
-- name: Pull from IBM Cloud Container Registry
-  uses: ./ibmcloud-cr-action
+- name: Deploy with env vars
+  uses: ./deploy-action
   with:
-    apikey: ${{ secrets.IBM_CLOUD_API_KEY }}
-    image: us.icr.io/my-namespace/my-app:v1.0.0
-    action: pull
+    image: us.icr.io/my-namespace/myapp:v1.0.0
+    ibmcloud-apikey: ${{ secrets.IBM_CLOUD_API_KEY }}
+    cluster-name: my-cluster
+    deployment-name: myapp
+    env-vars: |
+      DATABASE_URL=postgresql://db.example.com:5432/mydb
+      REDIS_URL=redis://redis.example.com:6379
+      LOG_LEVEL=info
+      NODE_ENV=production
 ```
 
-### Tag Image
+### Deploy with Resource Limits
 
-Add a new tag to an existing image:
+Deploy with custom resource limits and requests:
 
 ```yaml
-- name: Tag image as latest
-  uses: ./ibmcloud-cr-action
+- name: Deploy with resources
+  uses: ./deploy-action
   with:
-    apikey: ${{ secrets.IBM_CLOUD_API_KEY }}
-    image: us.icr.io/my-namespace/my-app:v1.0.0
-    action: tag
-    target-tag: latest
+    image: us.icr.io/my-namespace/myapp:v1.0.0
+    ibmcloud-apikey: ${{ secrets.IBM_CLOUD_API_KEY }}
+    cluster-name: my-cluster
+    deployment-name: myapp
+    replicas: 5
+    resource-limits-cpu: 1
+    resource-limits-memory: 1Gi
+    resource-requests-cpu: 500m
+    resource-requests-memory: 512Mi
 ```
 
-### Retag Image
+### Deploy with Ingress
 
-Move a tag from one version to another:
+Deploy with Kubernetes Ingress:
 
 ```yaml
-- name: Promote staging to production
-  uses: ./ibmcloud-cr-action
+- name: Deploy with Ingress
+  uses: ./deploy-action
   with:
-    apikey: ${{ secrets.IBM_CLOUD_API_KEY }}
-    image: us.icr.io/my-namespace/my-app
-    action: retag
-    source-tag: staging
-    target-tag: production
+    image: us.icr.io/my-namespace/myapp:v1.0.0
+    ibmcloud-apikey: ${{ secrets.IBM_CLOUD_API_KEY }}
+    cluster-name: my-cluster
+    deployment-name: myapp
+    service-type: ClusterIP
+    ingress-host: myapp.example.com
+    ingress-tls: true
 ```
 
-### Delete Image
+### Deploy with Custom Health Check
 
-Delete an image from the registry:
+Deploy with custom health check configuration:
 
 ```yaml
-- name: Delete old image
-  uses: ./ibmcloud-cr-action
+- name: Deploy with health check
+  uses: ./deploy-action
   with:
-    apikey: ${{ secrets.IBM_CLOUD_API_KEY }}
-    image: us.icr.io/my-namespace/my-app:old-tag
-    action: delete
+    image: us.icr.io/my-namespace/myapp:v1.0.0
+    ibmcloud-apikey: ${{ secrets.IBM_CLOUD_API_KEY }}
+    cluster-name: my-cluster
+    deployment-name: myapp
+    health-check-path: /api/health
+    health-check-timeout: 600
 ```
 
-### Create Namespace
+### Deploy Without Health Probes
 
-Create a new namespace in IBM Cloud Container Registry:
+For applications that don't have health endpoints, disable probes:
 
 ```yaml
-- name: Create namespace
-  uses: ./ibmcloud-cr-action
+- name: Deploy without probes
+  uses: ./deploy-action
   with:
-    apikey: ${{ secrets.IBM_CLOUD_API_KEY }}
-    action: namespace
-    namespace-action: create
-    namespace: my-new-namespace
-    region: us-south
+    image: us.icr.io/my-namespace/myapp:v1.0.0
+    ibmcloud-apikey: ${{ secrets.IBM_CLOUD_API_KEY }}
+    cluster-name: my-cluster
+    deployment-name: myapp
+    enable-probes: false
 ```
 
-### List Namespaces
+### Deploy with Separate Liveness and Readiness Probes
 
-List all namespaces in your IBM Cloud account:
-
-```yaml
-- name: List namespaces
-  uses: ./ibmcloud-cr-action
-  id: list-ns
-  with:
-    apikey: ${{ secrets.IBM_CLOUD_API_KEY }}
-    action: namespace
-    namespace-action: list
-    region: us-south
-
-- name: Display namespaces
-  run: echo "${{ steps.list-ns.outputs.namespaces }}"
-```
-
-### Delete Namespace
-
-Delete a namespace (this will remove all images in the namespace):
+Configure different paths for liveness and readiness:
 
 ```yaml
-- name: Delete namespace
-  uses: ./ibmcloud-cr-action
+- name: Deploy with separate probes
+  uses: ./deploy-action
   with:
-    apikey: ${{ secrets.IBM_CLOUD_API_KEY }}
-    action: namespace
-    namespace-action: delete
-    namespace: old-namespace
-    region: us-south
+    image: us.icr.io/my-namespace/myapp:v1.0.0
+    ibmcloud-apikey: ${{ secrets.IBM_CLOUD_API_KEY }}
+    cluster-name: my-cluster
+    deployment-name: myapp
+    enable-probes: true
+    readiness-probe-path: /ready
+    liveness-probe-path: /alive
 ```
 
 ## Complete Workflow Example
 
-Here's a simple example showing how to build and push an image:
+Here's a complete workflow that builds, pushes, and deploys:
 
 ```yaml
-name: Build and Push to IBM Cloud
+name: Build, Push, and Deploy
 
 on:
   push:
     branches: [main]
 
 env:
-  IBM_CLOUD_API_KEY: ${{ secrets.IBM_CLOUD_API_KEY }}
   IBM_CLOUD_REGION: us-south
   IBM_CLOUD_NAMESPACE: my-namespace
+  CLUSTER_NAME: my-k8s-cluster
 
 jobs:
-  build-and-push:
+  deploy:
     runs-on: ubuntu-latest
     
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
       
-      - name: Build Docker image
+      - name: Build image
         id: build
         uses: ./docker-build-action
         with:
-          build-args: |
-            BUILD_DATE=${{ github.event.head_commit.timestamp }}
-          labels: |
-            org.opencontainers.image.created=${{ github.event.head_commit.timestamp }}
+          image-name: myapp:${{ github.sha }}
       
       - name: Push to IBM Cloud Container Registry
         uses: ./
         with:
-          apikey: ${{ env.IBM_CLOUD_API_KEY }}
-          image: ${{ env.IBM_CLOUD_REGION }}.icr.io/${{ env.IBM_CLOUD_NAMESPACE }}/${{ steps.build.outputs.image-name }}
+          apikey: ${{ secrets.IBM_CLOUD_API_KEY }}
+          image: ${{ env.IBM_CLOUD_REGION }}.icr.io/${{ env.IBM_CLOUD_NAMESPACE }}/myapp:${{ github.sha }}
           local-image: ${{ steps.build.outputs.image-name }}
           action: push
           scan: true
-          region: ${{ env.IBM_CLOUD_REGION }}
+      
+      - name: Deploy to Kubernetes
+        id: deploy
+        uses: ./deploy-action
+        with:
+          image: ${{ env.IBM_CLOUD_REGION }}.icr.io/${{ env.IBM_CLOUD_NAMESPACE }}/myapp:${{ github.sha }}
+          cluster-type: kubernetes
+          ibmcloud-apikey: ${{ secrets.IBM_CLOUD_API_KEY }}
+          cluster-name: ${{ env.CLUSTER_NAME }}
+          cluster-region: ${{ env.IBM_CLOUD_REGION }}
+          deployment-name: myapp
+          namespace: production
+          replicas: 3
+      
+      - name: Display deployment info
+        run: |
+          echo "### Deployment Summary :rocket:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Status:** ${{ steps.deploy.outputs.deployment-status }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Application URL:** ${{ steps.deploy.outputs.application-url }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Health Check:** ${{ steps.deploy.outputs.health-check-result }}" >> $GITHUB_STEP_SUMMARY
 ```
 
-## Related Actions
+## Authentication Methods
 
-For a complete CI/CD pipeline, see these complementary actions:
-- [Docker Build Action](./docker-build-action) - Build Docker images with smart defaults
-- [Deploy Action](./deploy-action) - Deploy to Kubernetes or OpenShift
-- [Commit Status Action](./commit-status-action) - Set GitHub commit status
+### Using Kubeconfig
 
-See [.github/workflows](./.github/workflows) for complete workflow examples.
+Provide your kubeconfig as a secret (base64 encoded recommended):
 
-## Supported Regions
+```bash
+# Encode kubeconfig
+cat ~/.kube/config | base64 > kubeconfig.b64
 
-The action supports automatic region detection from the image path. Supported regions include:
+# Add to GitHub Secrets as KUBECONFIG
+```
 
-| Registry Domain | Region Code | Region Name |
-|----------------|-------------|-------------|
-| `us.icr.io` | `us-south` | US South (Dallas) |
-| `eu.icr.io` | `eu-gb` | UK South (London) |
-| `uk.icr.io` | `uk-south` | UK South (London) |
-| `au.icr.io` | `au-syd` | Sydney |
-| `jp.icr.io` | `jp-tok` | Tokyo |
-| `de.icr.io` | `eu-de` | Frankfurt |
+### Using IBM Cloud API Key
 
-If the region cannot be detected from the image path, you can specify it explicitly using the `region` input.
+For IBM Cloud Kubernetes or OpenShift clusters, use an IBM Cloud API key:
 
-## Vulnerability Scanning
+1. Create an API key in IBM Cloud
+2. Add it to GitHub Secrets as `IBM_CLOUD_API_KEY`
+3. Provide the cluster name and region
 
-Vulnerability scanning is **enabled by default** for push and pull operations. The action will:
+**Important:** When using an IBM Cloud API key, the action automatically creates an image pull secret for IBM Cloud Container Registry. This allows your cluster to pull private images from ICR without additional configuration.
 
-1. Initiate IBM Cloud Vulnerability Advisor scan on the image
-2. Poll for scan completion every 10 seconds (up to 5 minutes)
-3. Parse scan results and check status (OK, WARN, FAIL, UNSUPPORTED, INCOMPLETE, UNSCANNED)
-4. Output scan results in JSON format
-5. Set the `scan-result` output with detailed findings
+## Image Pull Secrets
 
-### Scan Status Behavior
+### Automatic Creation for IBM Cloud Container Registry
 
-- **OK**: No vulnerabilities found - build passes
-- **WARN**: Warnings found - build passes
-- **UNSUPPORTED**: Image type not supported for scanning - build passes
-- **FAIL**: Critical vulnerabilities found - build fails (configurable)
-- **INCOMPLETE/UNSCANNED**: Scan still in progress - action retries
+When deploying images from IBM Cloud Container Registry (*.icr.io), the action automatically:
 
-### Configuring Scan Behavior
+1. Detects the registry from the image path
+2. Creates a Kubernetes secret named `icr-secret` using the IBM Cloud API key
+3. Configures the deployment to use this secret for pulling images
 
-**Enable/Disable Scanning:**
+This happens automatically when you provide an `ibmcloud-apikey` input.
+
+### Manual Image Pull Secrets
+
+For other registries, you can create image pull secrets manually:
+
+```bash
+kubectl create secret docker-registry my-registry-secret \
+  --docker-server=myregistry.io \
+  --docker-username=myuser \
+  --docker-password=mypassword \
+  --docker-email=myemail@example.com \
+  -n my-namespace
+```
+
+Then reference it in your deployment manifest.
+
+## Health Checks
+
+The action performs comprehensive health checks:
+
+1. **Deployment Status**: Verifies deployment rollout is complete
+2. **Pod Status**: Checks all pods are running
+3. **HTTP Health Check**: Tests the application endpoint (if URL is available)
+
+Health check results are available in the `health-check-result` output.
+
+## Service Types
+
+The action supports three Kubernetes service types, with **ClusterIP as the default** for maximum compatibility with VPC clusters.
+
+### ClusterIP (Default - Recommended for VPC Clusters)
+
+Internal cluster IP - accessible only within the cluster. Best for VPC Kubernetes clusters without load balancers.
+
 ```yaml
-- name: Push without scanning
-  uses: ./ibmcloud-cr-action
-  with:
-    apikey: ${{ secrets.IBM_CLOUD_API_KEY }}
-    image: us.icr.io/my-namespace/my-app:v1.0.0
-    action: push
-    scan: false  # Disable vulnerability scanning
+service-type: ClusterIP  # This is the default
 ```
 
-**Allow Build to Continue Despite Vulnerabilities:**
+**URL Output:** Returns internal DNS name: `http://myapp.namespace.svc.cluster.local`
+
+**Use Cases:**
+- VPC Kubernetes clusters without load balancer support
+- Internal services not exposed externally
+- Services accessed through Ingress or API Gateway
+- Microservices communication within cluster
+
+### NodePort
+
+Exposes the service on each node's IP at a static port (30000-32767):
+
 ```yaml
-- name: Push and scan (don't fail on vulnerabilities)
-  uses: ./ibmcloud-cr-action
-  with:
-    apikey: ${{ secrets.IBM_CLOUD_API_KEY }}
-    image: us.icr.io/my-namespace/my-app:v1.0.0
-    action: push
-    scan: true
-    scan-fail-on-vulnerability: false  # Report but don't fail
+service-type: NodePort
 ```
 
-**Access Scan Results:**
+**URL Output:** Returns `http://<node-ip>:<node-port>`
+
+**Use Cases:**
+- Development and testing
+- Direct access to services without load balancer
+- Clusters with accessible node IPs
+
+### LoadBalancer
+
+Automatically provisions an external IP/hostname (requires cloud provider support):
+
 ```yaml
-- name: Push and scan
-  id: push-scan
-  uses: ./ibmcloud-cr-action
-  with:
-    apikey: ${{ secrets.IBM_CLOUD_API_KEY }}
-    image: us.icr.io/my-namespace/my-app:v1.0.0
-    action: push
-    scan: true
-
-- name: Check scan results
-  run: |
-    echo "Scan results: ${{ steps.push-scan.outputs.scan-result }}"
+service-type: LoadBalancer
 ```
 
-### Retry Logic
+**URL Output:** Returns `http://<external-ip>` (if load balancer is provisioned)
 
-The vulnerability scan includes automatic retry logic:
-- Polls every 10 seconds for scan completion
-- Maximum wait time: 5 minutes (30 attempts)
-- Continues while status is INCOMPLETE or UNSCANNED
-- Exits immediately when scan completes with final status
+**Use Cases:**
+- Classic Kubernetes clusters with load balancer support
+- Production deployments requiring external access
+- Cloud providers with load balancer integration
 
-## Error Handling
+**Note:** VPC clusters may not support LoadBalancer type. Use ClusterIP with Ingress instead.
 
-The action includes comprehensive error handling:
+## OpenShift Routes
 
-- **Input validation**: Validates all required inputs before execution
-- **Authentication errors**: Clear messages for API key or login failures
-- **Image not found**: Checks if images exist before operations
-- **Network failures**: Handles connection issues gracefully
-- **Operation failures**: Provides detailed error messages with exit codes
+For OpenShift clusters, routes are automatically created:
 
-## Security Best Practices
-
-1. **Store API keys securely**: Always use GitHub Secrets for the IBM Cloud API key
-2. **Use least privilege**: Grant only necessary permissions to the API key
-3. **Enable vulnerability scanning**: Use `scan: true` for production images
-4. **Review scan results**: Check vulnerability reports before deploying
-5. **Use specific tags**: Avoid using `latest` tag in production
+```yaml
+cluster-type: openshift
+create-route: true
+route-hostname: myapp.apps.cluster.example.com  # Optional
+```
 
 ## Troubleshooting
 
-### Authentication Failed
+### Readiness/Liveness Probe Failures
 
-If you see authentication errors:
-- Verify your IBM Cloud API key is correct
-- Ensure the API key has Container Registry permissions
-- Check that the region is correct
+If pods are failing readiness or liveness probes:
 
-### Image Not Found
+1. **Check if your application has health endpoints:**
+   ```bash
+   # Test the endpoint locally
+   curl http://localhost:8080/health
+   ```
 
-If push fails with "image not found":
-- Ensure the Docker image is built before pushing
-- Verify the image name matches exactly
-- Check that Docker is running
+2. **Disable probes if your app doesn't have health endpoints:**
+   ```yaml
+   enable-probes: false
+   ```
 
-### Namespace Already Exists
+3. **Configure correct probe paths:**
+   ```yaml
+   enable-probes: true
+   readiness-probe-path: /ready  # Your actual readiness endpoint
+   liveness-probe-path: /health  # Your actual liveness endpoint
+   ```
 
-When creating a namespace that already exists:
-- The action will report the namespace exists and continue
-- Use the `list` action to check existing namespaces first
+4. **Check pod logs for errors:**
+   ```bash
+   kubectl logs <pod-name> -n <namespace>
+   kubectl describe pod <pod-name> -n <namespace>
+   ```
 
-### Region Detection Issues
+5. **Common probe issues:**
+   - Application takes too long to start (increase `initialDelaySeconds`)
+   - Health endpoint returns non-200 status code
+   - Application is listening on wrong port
+   - Health endpoint path is incorrect (404 errors)
 
-If region auto-detection fails:
-- Specify the region explicitly using the `region` input
-- Ensure the image path follows the format: `<region>.icr.io/namespace/image:tag`
+### Image Pull Errors (ImagePullBackOff)
 
+If pods fail to start with `ImagePullBackOff` or `ErrImagePull`:
+
+1. **For IBM Cloud Container Registry images:**
+   - Ensure you're providing `ibmcloud-apikey` input
+   - Verify the API key has Container Registry Reader permissions
+   - Check that the image exists in the registry
+   - Verify the image path is correct (e.g., `us.icr.io/namespace/image:tag`)
+
+2. **Check the image pull secret:**
+   ```bash
+   kubectl get secret icr-secret -n <namespace>
+   kubectl describe pod <pod-name> -n <namespace>
+   ```
+
+3. **Manually test image pull:**
+   ```bash
+   kubectl run test --image=<your-image> -n <namespace> --rm -it --restart=Never
+   ```
+
+### Deployment fails to become ready
+
+- Check pod logs: `kubectl logs <pod-name> -n <namespace>`
+- Check pod events: `kubectl describe pod <pod-name> -n <namespace>`
+- Verify image exists and is accessible
+- Check resource limits are sufficient
+- Verify image pull secret is created: `kubectl get secret icr-secret -n <namespace>`
+
+### Health check timeout
+
+- Verify the health check path is correct
+- Increase `health-check-timeout`
+- Check application logs for startup issues
+- Verify the application is listening on the correct port
+
+### Authentication failures
+
+- For kubeconfig: Ensure it's properly base64 encoded
+- For IBM Cloud: Verify API key has correct permissions
+- Check cluster name and region are correct
+- Verify API key has Container Registry access for image pulls
+
+### No application URL
+
+- For LoadBalancer: Wait for external IP assignment (can take several minutes)
+- For NodePort: Ensure nodes have external IPs
+- For OpenShift: Verify route creation succeeded
+- For Ingress: Check ingress controller is installed
+
+## Best Practices
+
+1. **Use specific image tags**: Avoid `latest` in production
+2. **Set resource limits**: Prevent resource exhaustion
+3. **Configure health checks**: Ensure proper application monitoring
+4. **Use namespaces**: Isolate environments (dev, staging, prod)
+5. **Enable TLS**: For production ingress/routes
+6. **Monitor deployments**: Check outputs and logs
 
 ## License
 
